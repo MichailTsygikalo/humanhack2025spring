@@ -1,0 +1,14 @@
+version: '3.9'
+
+services:  
+  postgres_db:
+    container_name: postgres_hack
+    image: postgres:17.4
+    env_file:
+      - ../.env
+    environment:
+      POSTGRES_DB: ${db_postgres_name}
+      POSTGRES_USER: ${db_postgres_username}
+      POSTGRES_PASSWORD: ${db_postgres_password}
+    ports:
+      - "5432:5432"
