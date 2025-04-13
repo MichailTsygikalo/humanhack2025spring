@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 import sqlalchemy
 import hashlib
 import os
+import mimetypes
+from datetime import datetime
 
 from app.config import BASE_DIR
 from app.core.db import get_session
@@ -18,7 +20,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 router = APIRouter()
 
 @router.get('/all_doc_user', tags=['Документы, составленные пользователем'])
-def get_doc_cur_user(current_user: UserModel = Depends(get_current_user), session:Session = Depends(get_session))->list[UserDocumentSchema]:
+def get_doc_cur_user(current_user: UserModel = Depends(get_current_user), session:Session = Depends(get_session)):
     sql = sqlalchemy.text(
         """
         select d."name" doc_name, d.title doc_title, d.status doc_status, d.s_employee employee_id, d.id doc_id from "document" d
@@ -28,14 +30,14 @@ def get_doc_cur_user(current_user: UserModel = Depends(get_current_user), sessio
         """
     )
     result = session.execute(sql, {"id":current_user.id}).mappings().all()
-    documents = [UserDocumentSchema(**row) for row in result]
+    documents = [dict(row) for row in result]
     return documents
 
 @router.get('/all_sign_doc_user', tags=['Документы, которые пользователь должен подписать или подписал (см статус)'])
 def get_doc_sign_cur_user(current_user: UserModel = Depends(get_current_user), session:Session = Depends(get_session))->list[UserDocumentSignSchema]:
     sql = sqlalchemy.text(
         """
-        SELECT d."name" AS doc_name, 
+        SELECT distinct d."name" AS doc_name, 
             d.title AS doc_title, 
             d.status AS doc_status, 
             d.id AS doc_id, 
@@ -270,12 +272,12 @@ def add_document(doc:DocumentSchema,current_user: UserModel = Depends(get_curren
         """
         INSERT INTO public."document"
         (id, "name", s_employee, title, status)
-        VALUES(nextval('document_id_seq'::regclass), :name, :id, :title, false)
+        VALUES(nextval('document_id_seq'::regclass), :name, :id, :title, :status)
         RETURNING id
         """
     )
     try:
-        ob = session.execute(sql, {"name":doc.name, "id":doc.employee_id, "title":doc.title})
+        ob = session.execute(sql, {"name":doc.name, "id":doc.employee_id, "title":doc.title, "status":DocumentStatus.DRAFT})
         session.commit()
         inserted_id = ob.scalar()
         return JSONResponse(
@@ -417,6 +419,34 @@ def add_company_departments(company_name: str, current_user: UserModel = Depends
     )
 
 
+@router.get('/all_company')
+def all_company(current_user: UserModel = Depends(get_current_user), session:Session = Depends(get_session)):
+    sql = sqlalchemy.text(
+        """
+        select * from company
+        """
+    )
+    try:
+        result = session.execute(sql).mappings().all()
+
+        company = [dict(row) for row in result]  
+        
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Ошибка при добавлении сотрудника: {str(e)}"
+        )    
+        
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "company":company     
+        }
+    )    
+
+
+
 @router.post('/add_departments', tags=['Добавить отдел'])
 def add_company_departments(department_name: str, id_company:int, current_user: UserModel = Depends(get_current_user), session:Session = Depends(get_session)):
     sql = sqlalchemy.text(
@@ -463,7 +493,7 @@ async def upload_file(doc_id:int,file: UploadFile = File(...),current_user: User
     if not file.filename.endswith(('.doc', '.docx', '.pdf')):
         raise HTTPException(status_code=400, detail="Only .pdf, .doc and .docx files are allowed")
     
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    file_path = os.path.join(UPLOAD_DIR, f'{file.filename}{datetime.utcnow()}')
     
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
@@ -488,17 +518,19 @@ async def download_file(doc_id: int, current_user: UserModel = Depends(get_curre
         select d.filepath from "document" d where d.id = :id
         """
     )
-    result = session.execute(sql, {"id":doc_id}).mappings().first()
+    result = session.execute(sql, {"id":doc_id}).scalar()
     
-    file_path = result.filepath
+    file_path = result
     
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
     
     file_name = os.path.basename(file_path)
+
+    mime_type, _ = mimetypes.guess_type(file_path)
     
     return FileResponse(
         path=file_path,
         filename=file_name,
-        media_type="application/msword"
+        media_type=mime_type
     )

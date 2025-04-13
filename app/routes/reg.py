@@ -20,6 +20,6 @@ def registr(user: UserReg, session:Session = Depends(get_session)):
         )
     new_user = user_model.create_new_user(session=session)
     return JSONResponse(
-        status_code=status.HTTP_201_CREATED,
+        status_code=status.HTTP_200_OK,
         content={"ans": f"Пользователь зарегистрирован {new_user.email}"}
     )
