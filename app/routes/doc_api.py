@@ -493,7 +493,7 @@ async def upload_file(doc_id:int,file: UploadFile = File(...),current_user: User
     if not file.filename.endswith(('.doc', '.docx', '.pdf')):
         raise HTTPException(status_code=400, detail="Only .pdf, .doc and .docx files are allowed")
     
-    file_path = os.path.join(UPLOAD_DIR, f'{file.filename}{datetime.utcnow()}')
+    file_path = os.path.join(UPLOAD_DIR, f'{datetime.utcnow()}_{file.filename}')
     
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
